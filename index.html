@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Escáner de códigos</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 12px; background: #f4f5f7; color: #222; }
+  h1 { font-size: 20px; margin: 4px 0 12px; }
+  #reader { width: 100%; max-width: 420px; margin: 0 auto 8px; background: #000; border-radius: 8px; overflow: hidden; }
+  .btn { width: 100%; padding: 14px; font-size: 17px; border: 0; border-radius: 8px; background: #1a73e8; color: #fff; margin: 6px 0; }
+  .btn.sec { background: #5f6368; }
+  .btn:disabled { opacity: .6; }
+  label { display: block; font-weight: 600; margin-top: 10px; font-size: 15px; }
+  input, select, textarea { width: 100%; box-sizing: border-box; padding: 12px; font-size: 17px; border: 1px solid #bbb; border-radius: 8px; margin-top: 4px; background: #fff; }
+  #msg { margin-top: 12px; padding: 12px; border-radius: 8px; display: none; font-size: 15px; }
+  .ok { background: #e6f4ea; color: #137333; }
+  .err { background: #fce8e6; color: #c5221f; }
+</style>
+</head>
+<body>
+<h1>Escáner de códigos</h1>
+<div id="reader"></div>
+<button class="btn sec" id="btnCam" type="button">Iniciar cámara</button>
+<form id="f">
+  <label>Tipo
+    <select id="tipo">
+      <option value="Bodega">Bodega</option>
+      <option value="Medidor">Medidor</option>
+    </select>
+  </label>
+  <label>Código
+    <input id="codigo" autocomplete="off" required placeholder="Escanea o escribe">
+  </label>
+  <label>Formato
+    <input id="formato" value="Manual" readonly>
+  </label>
+  <label>Cantidad o lectura
+    <input id="cantidad" inputmode="decimal" autocomplete="off" required>
+  </label>
+  <label>Usuario
+    <input id="usuario" autocomplete="username" required>
+  </label>
+  <label>Notas
+    <textarea id="notas" rows="2"></textarea>
+  </label>
+  <button class="btn" type="submit">Guardar</button>
+</form>
+<div id="msg"></div>
+<script>
+const CONFIG = {
+  url: 'https://script.google.com/macros/s/AKfycbx8Es_eKKGK8RpfdGpzrefoC7Jrag32tlDwT6RQXHOuwv9xU07L60CiteYZtPpqHwKA/exec',
+  token: 'wG7-escaneo-Qx9Lp2Vz8Rt4Mk6Hn1Bs',
+  hoja: 'Escaneos'
+};
+const $ = id => document.getElementById(id);
+const FORMATOS = { EAN_13: 'EAN-13', CODE_128: 'Code 128' };
+let scanner = null;
+
+function mostrar(texto, clase) {
+  const m = $('msg');
+  m.textContent = texto;
+  m.className = clase;
+  m.style.display = 'block';
+}
+
+async function detenerCamara() {
+  if (scanner) {
+    try { await scanner.stop(); scanner.clear(); } catch (e) {}
+    scanner = null;
+  }
+  $('btnCam').textContent = 'Iniciar cámara';
+}
+
+async function iniciarCamara() {
+  if (scanner) { await detenerCamara(); return; }
+  if (typeof Html5Qrcode === 'undefined') {
+    mostrar('No se cargó el lector de códigos. Revisa tu conexión.', 'err');
+    return;
+  }
+  scanner = new Html5Qrcode('reader');
+  try {
+    await scanner.start(
+      { facingMode: 'environment' },
+      {
+        fps: 10,
+        qrbox: { width: 300, height: 120 },
+        formatsToSupport: [Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.CODE_128]
+      },
+      (texto, resultado) => {
+        const raw = resultado && resultado.result && resultado.result.format ? resultado.result.format.formatName : '';
+        $('codigo').value = texto;
+        $('formato').value = FORMATOS[raw] || raw || 'Manual';
+        if (navigator.vibrate) navigator.vibrate(120);
+        detenerCamara();
+        $('cantidad').focus();
+      },
+      () => {}
+    );
+    $('btnCam').textContent = 'Detener cámara';
+  } catch (e) {
+    scanner = null;
+    mostrar('No se pudo abrir la cámara. Revisa el permiso del navegador. ' + e, 'err');
+  }
+}
+
+$('btnCam').addEventListener('click', iniciarCamara);
+$('codigo').addEventListener('input', () => { $('formato').value = 'Manual'; });
+
+$('f').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = e.submitter || document.querySelector('#f button[type=submit]');
+  const datos = {
+    token: CONFIG.token,
+    hoja: CONFIG.hoja,
+    fecha: new Date().toISOString(),
+    tipo: $('tipo').value,
+    codigo: $('codigo').value.trim(),
+    formato: $('formato').value,
+    cantidad: $('cantidad').value.trim(),
+    usuario: $('usuario').value.trim(),
+    notas: $('notas').value.trim()
+  };
+  btn.disabled = true;
+  try {
+    await fetch(CONFIG.url, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(datos)
+    });
+    mostrar('Enviado. Revisa la pestaña Escaneos para confirmar la fila.', 'ok');
+    $('codigo').value = '';
+    $('formato').value = 'Manual';
+    $('cantidad').value = '';
+    $('notas').value = '';
+    $('codigo').focus();
+  } catch (err) {
+    mostrar('No se pudo enviar: ' + err, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
